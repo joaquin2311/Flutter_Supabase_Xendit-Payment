@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http; // Make sure 'http' is added to your pubspec.yaml
 
 void main() => runApp(const ShopApp());
 
@@ -20,7 +22,7 @@ class Product {
 }
 
 const List<Product> products = [
-    Product(
+  Product(
     id: 1,
     title: 'POWERBANK',
     price: 1500,
@@ -41,7 +43,7 @@ const List<Product> products = [
     description: 'A charger is a device that converts electrical mains power into a safe voltage and current to replenish the energy stored inside a battery.',
     imageUrl: 'https://m.media-amazon.com/images/I/51VM2jCx6kL.jpg',
   ),
-    Product(
+  Product(
     id: 4,
     title: 'CASE PHONE',
     price: 60,
@@ -189,7 +191,6 @@ class BackCircle extends StatelessWidget {
   }
 }
 
-/// Custom clipper to mimic wireframe directional pointing arrows on pills
 class DirectionalPillClipper extends CustomClipper<Path> {
   final bool pointLeft;
 
@@ -499,6 +500,99 @@ class OrderConfirmationScreen extends StatelessWidget {
 class PaymentIntegrationScreen extends StatelessWidget {
   const PaymentIntegrationScreen({super.key});
 
+  /// Dynamic Xendit API Integration Function
+  Future<void> createXenditInvoice(BuildContext context) async {
+    final url = Uri.parse('https://api.xendit.co/v2/invoices');
+    
+    // Replace with your actual Xendit Development/Production Secret Key
+    String secretKey = 'xnd_development_PASTE_YOUR_COPIED_KEY_HERE'; 
+    String basicAuth = 'Basic ${base64Encode(utf8.encode('$secretKey:'))}';
+
+    // Dynamically map items from the shopping cart model
+    final List<Map<String, dynamic>> xenditItems = cart.items.entries.map((entry) {
+      return {
+        "name": entry.key.title,
+        "quantity": entry.value,
+        "price": entry.key.price,
+        "category": "Tech"
+      };
+    }).toList();
+
+    final body = {
+      "external_id": "order-${DateTime.now().millisecondsSinceEpoch}",
+      "amount": cart.total, // Dynamic cart total amount
+      "currency": "PHP",
+      "items": xenditItems, // Dynamic list of items purchased
+      "customer": {
+        "given_names": "Juan",
+        "surname": "Delacruz",
+        "email": "juan@example.com"
+      }
+    };
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': basicAuth,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        String invoiceUrl = responseData['invoice_url'];
+        print('Invoice URL created: $invoiceUrl');
+        
+        // Show success dialog with Xendit integration confirmation
+        _showSuccessDialog(context);
+      } else {
+        print('Error: ${response.body}');
+        _showErrorDialog(context, response.body);
+      }
+    } catch (e) {
+      print('Exception: $e');
+      _showErrorDialog(context, e.toString());
+    }
+  }
+
+  void _showSuccessDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xendit Invoice Created!'),
+        content: const Text('Your transaction with multiple item purchases was successfully sent to Xendit.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              cart.clear();
+              Navigator.of(ctx).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorDialog(BuildContext context, String error) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Payment Error'),
+        content: Text('Could not connect to Xendit: $error'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -541,26 +635,8 @@ class PaymentIntegrationScreen extends StatelessWidget {
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Payment Successful!'),
-                        content: const Text('Your transaction via GCash / InstaPay was completed.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () {
-                              cart.clear();
-                              Navigator.of(ctx).pop();
-                              Navigator.of(context).popUntil((route) => route.isFirst);
-                            },
-                            child: const Text('Done'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  child: const Text('GCash or Instapay', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  onPressed: () => createXenditInvoice(context),
+                  child: const Text('GCash or Instapay (Xendit)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
